@@ -1,0 +1,26 @@
+# PastureSong Configuration
+
+# Environment & Area Load System
+environment:
+  # Capacity Calculation: Limit * (Area / (Area + K))
+  capacity:
+    limit: 50.0
+    k_value: 20.0
+  
+  # Load values per entity type
+  load:
+    manure: 2.0
+    default: 1.0
+    animals:
+      COW: 1.5
+      SHEEP: 1.0
+      PIG: 1.2
+      CHICKEN: 0.5
+      HORSE: 2.0
+
+# Stress System
+stress:
+  # Stress gained when exhausted (fatigued)
+  exhaustion_penalty: 10.0
+  # Stress gained from vanilla interactions
+  interaction_penalty: 20.0

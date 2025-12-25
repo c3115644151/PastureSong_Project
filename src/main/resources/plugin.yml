@@ -1,0 +1,16 @@
+name: PastureSong
+version: 1.0-SNAPSHOT
+main: com.example.pasturesong.PastureSong
+api-version: 1.21
+description: A complex animal husbandry plugin with genetics and ecosystem mechanics.
+author: cy311
+depend: [BiomeGifts]
+commands:
+  pasturesong:
+    description: Main command for PastureSong
+    aliases: [ps]
+    usage: /pasturesong <subcommand>
+permissions:
+  pasturesong.admin:
+    description: Allows access to all PastureSong commands
+    default: op
