@@ -24,7 +24,7 @@ public class PastureItemManager {
         plugin.getLogger().info("Registering PastureSong items...");
 
         // Tools
-        registerItem("GENETIC_LENS", Material.SPYGLASS, "基因透镜", 30001, "§7透过镜片观察生命的本质。", "§e右键动物查看性状特征。");
+        registerItem("GENETIC_LENS", Material.SPYGLASS, "牧原透镜", 30001, "§7透过镜片观察生命的本质。", "§e右键动物查看性状特征。");
         registerItem("DNA_SAMPLER", Material.FLINT, "DNA 采样器", 30002, "§7锋利的采样工具。", "§e右键动物提取 DNA 样本。", "§c注意：会造成动物受伤和应激。");
         // Changed to Iron Hoe to prevent vanilla shearing conflict
         registerItem("PASTURE_SHEARS", Material.IRON_HOE, "精工剪", 30003, "§7专为获取高品质羊毛设计。", "§e右键绵羊进行精准剪毛。", "§a能够完整采集特产羊毛。");
