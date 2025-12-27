@@ -42,6 +42,9 @@ public class LifecycleListener implements Listener {
                 if (!animal.isAdult()) {
                     applyGrowthLogic(animal, randomGenes);
                 }
+                
+                // Apply Health Scaling immediately for new spawns
+                applyHealthScaling(animal, randomGenes);
             }
         }
     }
@@ -77,8 +80,35 @@ public class LifecycleListener implements Listener {
         plugin.getGeneticsManager().saveGenesToEntity(child, childGenes);
         markInitialized(child);
 
+        // Feedback based on Gene Quality
+        double totalScore = 0;
+        for (Trait t : Trait.values()) {
+            totalScore += childGenes.getGenePair(t).getPhenotypeValue();
+        }
+
+        if (totalScore >= 8.0) {
+            // Excellent Baby
+            child.getWorld().spawnParticle(org.bukkit.Particle.HAPPY_VILLAGER, child.getLocation().add(0, 0.5, 0), 10, 0.5, 0.5, 0.5);
+            child.getWorld().playSound(child.getLocation(), org.bukkit.Sound.ENTITY_PLAYER_LEVELUP, 1.0f, 2.0f);
+        } else if (totalScore <= -8.0) {
+            // Poor Baby
+            child.getWorld().spawnParticle(org.bukkit.Particle.SMOKE, child.getLocation().add(0, 0.5, 0), 10, 0.5, 0.5, 0.5);
+            child.getWorld().playSound(child.getLocation(), org.bukkit.Sound.ENTITY_VILLAGER_NO, 1.0f, 1.0f);
+        } else {
+            // Normal
+            child.getWorld().spawnParticle(org.bukkit.Particle.HEART, child.getLocation().add(0, 0.5, 0), 3);
+        }
+
         // Apply Growth Logic (V gene)
         applyGrowthLogic(child, childGenes);
+        
+        // Apply Health Scaling
+        applyHealthScaling(child, childGenes);
+    }
+
+    private void applyHealthScaling(Animals animal, GeneData genes) {
+        // Delegate to GeneticsManager for centralized logic
+        plugin.getGeneticsManager().applyGeneAttributes(animal, genes);
     }
 
     private void markInitialized(LivingEntity entity) {

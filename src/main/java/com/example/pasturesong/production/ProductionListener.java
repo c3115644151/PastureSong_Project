@@ -7,7 +7,6 @@ import com.example.pasturesong.genetics.Trait;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Material;
 import org.bukkit.Sound;
-import org.bukkit.block.Biome;
 import org.bukkit.entity.*;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -15,156 +14,329 @@ import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerShearEntityEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.meta.ItemMeta;
+
+import com.example.pasturesong.qte.*;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
+import org.bukkit.NamespacedKey;
+import org.bukkit.persistence.PersistentDataType;
+import java.util.regex.Pattern;
+
+import com.biomegifts.BiomeGifts;
+import com.biomegifts.ConfigManager.ResourceConfig;
+
 public class ProductionListener implements Listener {
 
     private final PastureSong plugin;
+    private final java.util.Map<java.util.UUID, Long> interactionCooldowns = new java.util.HashMap<>();
 
     public ProductionListener(PastureSong plugin) {
         this.plugin = plugin;
     }
 
     @EventHandler
+    public void onEntityDamage(org.bukkit.event.entity.EntityDamageByEntityEvent event) {
+        if (!(event.getEntity() instanceof Animals)) return;
+        if (!(event.getDamager() instanceof Player)) return;
+        
+        Player player = (Player) event.getDamager();
+        ItemStack weapon = player.getInventory().getItemInMainHand();
+        
+        // Check Butchery Enchantment
+        int level = com.example.pasturesong.enchantments.ButcheryEnchantment.getLevel(weapon, plugin);
+        if (level > 0) {
+            // Massive Damage Bonus against Animals
+            // Base Damage: 21 (300% of Diamond Sword base 7)
+            // Plus Level * 10
+            
+            double baseBonus = 14.0; // 7 + 14 = 21 (Total 300% or +200%)
+            double levelBonus = level * 10.0;
+            
+            event.setDamage(event.getDamage() + baseBonus + levelBonus);
+            
+            // Effect
+            player.getWorld().spawnParticle(org.bukkit.Particle.CRIT, event.getEntity().getLocation().add(0, 1, 0), 10);
+        }
+    }
+
+    @EventHandler(priority = org.bukkit.event.EventPriority.HIGHEST)
     public void onEntityDeath(EntityDeathEvent event) {
         if (!(event.getEntity() instanceof Animals)) return;
         Animals animal = (Animals) event.getEntity();
         
-        // Only affect adult animals? Or all? Usually adults produce more.
-        // Let's assume all for now or check age.
+        // Debug
+        // plugin.getLogger().info("Processing death drops for " + animal.getType());
+
+        try {
+            // Clear vanilla drops
+            event.getDrops().clear();
+            event.setDroppedExp(0); // Optional: Custom EXP?
         
-        List<ItemStack> drops = event.getDrops();
         List<ItemStack> newDrops = new ArrayList<>();
+        boolean isBurning = animal.getFireTicks() > 0;
+        
+        // Define Base Drops (Reduced as requested)
+        if (animal instanceof Cow) {
+            addDrops(newDrops, isBurning ? Material.COOKED_BEEF : Material.BEEF, 20, 42);
+            addDrops(newDrops, Material.LEATHER, 6, 12);
+        } else if (animal instanceof Pig) {
+            addDrops(newDrops, isBurning ? Material.COOKED_PORKCHOP : Material.PORKCHOP, 18, 30);
+        } else if (animal instanceof Sheep) {
+            addDrops(newDrops, isBurning ? Material.COOKED_MUTTON : Material.MUTTON, 15, 30);
+            addDrops(newDrops, convertWoolColor(((Sheep) animal).getColor()), 2, 4);
+        } else if (animal instanceof Chicken) {
+            addDrops(newDrops, isBurning ? Material.COOKED_CHICKEN : Material.CHICKEN, 3, 6);
+            addDrops(newDrops, Material.FEATHER, 6, 14);
+        }
         
         double stress = plugin.getStressManager().getTotalStress(animal);
         GeneData genes = plugin.getGeneticsManager().getGenesFromEntity(animal);
         double fertility = 0;
+        // Growth Potential (Meat Amount)
+        // double growth = 0; // Not used in new formula
+        
         if (genes != null) {
             fertility = genes.getGenePair(Trait.FERTILITY).getPhenotypeValue();
+            // growth = genes.getGenePair(Trait.VITALITY).getPhenotypeValue(); 
         }
         
-        // Stress Multiplier
-        double stressMult = 1.0;
-        if (stress <= 0.1) stressMult = 1.25;
-        else if (stress <= 20) stressMult = 1.0;
-        else if (stress <= 50) stressMult = 0.7;
-        else if (stress <= 70) stressMult = 0.5;
-        else if (stress <= 90) stressMult = 0.3;
-        else stressMult = 0.1;
-        
-        for (ItemStack drop : drops) {
-            int originalAmount = drop.getAmount();
-            // Base 10x
-            int baseAmount = originalAmount * 10;
-            
-            // Fertility Adjustment
-            int fAdjustment = 0;
-            int fScore = (int) Math.abs(fertility); // Assuming int steps for loop
-            int sign = (fertility >= 0) ? 1 : -1;
-            
-            for (int i = 0; i < fScore; i++) {
-                if (ThreadLocalRandom.current().nextDouble() < 0.25) {
-                    fAdjustment += sign;
-                }
+        // 1. Butchery Bonus (Multiplier)
+        // Check Killer
+        double butcheryBonus = 0.0;
+        Player killer = animal.getKiller();
+        if (killer != null) {
+            ItemStack weapon = killer.getInventory().getItemInMainHand();
+            int level = com.example.pasturesong.enchantments.ButcheryEnchantment.getLevel(weapon, plugin);
+            if (level > 0) {
+                // Level 1: 25%, Level 2: 50%, Level 3: 75%
+                butcheryBonus = level * 0.25; 
             }
+        }
+
+        // 2. Stress Modifier (Multiplier)
+        double stressMod = 0.0;
+        if (stress <= 0.1) {
+            stressMod = 0.25; // Perfect: +25%
+        } else if (stress <= 20) {
+            stressMod = 0.0; // Normal: +0%
+        } else if (stress <= 50) {
+            stressMod = -0.3; // Light: -30%
+        } else if (stress <= 70) {
+            stressMod = -0.5; // Moderate: -50%
+        } else if (stress <= 90) {
+            stressMod = -0.7; // Severe: -70%
+        } else {
+            stressMod = -0.9; // Collapse: -90%
+        }
+
+        // 3. Looting (Additive)
+        int lootingAdd = 0;
+        if (killer != null) {
+             lootingAdd = killer.getInventory().getItemInMainHand().getEnchantmentLevel(org.bukkit.enchantments.Enchantment.LOOTING);
+        }
+
+        // 4. Fertility (Multiplier)
+        // Formula: Base * (1 + Butchery + Stress) * (1 + Fertility) + Looting
+        // Fertility: Each point = 10%? User said "1 + Fertility Gene Bonus".
+        // Let's assume Fertility Value * 0.1 (e.g. 5 -> 0.5 -> 1.5x)
+        double fertilityBonus = 0.0;
+        if (fertility > 0) {
+            fertilityBonus = fertility * 0.1;
+        } else {
+            // Negative fertility reduces drops? Or just 0 bonus?
+            // "1 + Bonus". If negative, it might be penalty.
+            // Let's allow negative.
+            fertilityBonus = fertility * 0.1; 
+        }
+        
+        // Calculate Base Multiplier
+        double baseMultiplier = 1.0 + butcheryBonus + stressMod;
+        if (baseMultiplier < 0) baseMultiplier = 0;
+        
+        // Calculate Fertility Multiplier
+        double fertilityMultiplier = 1.0 + fertilityBonus;
+        if (fertilityMultiplier < 0) fertilityMultiplier = 0;
+
+        int stars = getQualityStars(animal);
+
+        // Process Drops
+        for (ItemStack drop : newDrops) {
+            int baseAmount = drop.getAmount();
             
-            int amount = baseAmount + fAdjustment;
-            if (amount < 0) amount = 0;
-            
-            // Apply Stress Multiplier
-            amount = (int) (amount * stressMult);
+            // Formula: Base * (1 + Butchery + Stress) * (1 + Fertility) + Looting
+            int amount = (int) (baseAmount * baseMultiplier * fertilityMultiplier + lootingAdd);
             
             if (amount > 0) {
                 drop.setAmount(amount);
-                newDrops.add(drop);
+                applyQualityLore(drop, stars);
+                event.getDrops().add(drop);
             }
         }
-        
-        // Update drops
-        // We can't modify the list directly if we are iterating, but here we created new list
-        // Actually event.getDrops() is mutable.
-        // But better to clear and addall?
-        // Or just modify the items in place if we didn't clone them?
-        // We modified 'drop' amount.
-        // But if we filtered out some...
-        // Let's just rely on the modification.
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    // Removed old getButcheryLevel method as we use Enchantment helper now
+    
+    private void addDrops(List<ItemStack> drops, Material material, int min, int max) {
+        if (material == null) return;
+        int amount = ThreadLocalRandom.current().nextInt(min, max + 1);
+        if (amount > 0) {
+            drops.add(new ItemStack(material, amount));
+        }
+    }
+    
+    private Material convertWoolColor(org.bukkit.DyeColor color) {
+        if (color == null) return Material.WHITE_WOOL;
+        try {
+            return Material.valueOf(color.name() + "_WOOL");
+        } catch (IllegalArgumentException e) {
+            return Material.WHITE_WOOL;
+        }
     }
 
-    @EventHandler
+    @EventHandler(ignoreCancelled = true)
     public void onCowInteract(PlayerInteractEntityEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND) return;
         if (!(event.getRightClicked() instanceof Cow)) return;
-        Cow cow = (Cow) event.getRightClicked();
+        
         Player player = event.getPlayer();
+        long now = System.currentTimeMillis();
+        if (now - interactionCooldowns.getOrDefault(player.getUniqueId(), 0L) < 200) return;
+        interactionCooldowns.put(player.getUniqueId(), now);
+
+        Cow cow = (Cow) event.getRightClicked();
+        
+        // Prevent QTE conflict
+        if (plugin.getQTEManager().isQTEActive(player)) {
+            event.setCancelled(true);
+            return;
+        }
+        
         ItemStack item = player.getInventory().getItemInMainHand();
 
         // Check for Glass Bottle (Specialty Milking)
         if (item.getType() == Material.GLASS_BOTTLE) {
-            handleSpecialtyHarvest(event, cow, item, "特产奶", Sound.ENTITY_COW_MILK);
+            EnvironmentManager.LoadResult load = plugin.getEnvironmentManager().getLoad(cow);
+            String specialty = getSpecialtyDrop(cow);
+            
+            if (specialty == null || !load.isValid || plugin.getExhaustionManager().isExhausted(cow)) {
+                 handleSpecialtyHarvest(event, cow, item, "特产奶", Sound.ENTITY_COW_MILK);
+                 return;
+            }
+            
+            // Start QTE
+            event.setCancelled(true);
+            plugin.getQTEManager().startQTE(player, new CowMilkingQTE(plugin, player, cow,
+                () -> doSpecialtyHarvest(player, cow, item, specialty, Sound.ENTITY_COW_MILK),
+                () -> {
+                     player.sendMessage("§c挤奶失败！牛生气了！");
+                     cow.damage(1.0);
+                     plugin.getStressManager().addTemporaryStress(cow, 20.0);
+                }
+            ));
         }
         // Bucket handling (Vanilla) - check exhaustion
         else if (item.getType() == Material.BUCKET) {
             if (plugin.getExhaustionManager().isExhausted(cow)) {
                  plugin.getStressManager().addTemporaryStress(cow, 20.0);
+                 plugin.getExhaustionManager().playExhaustionEffect(cow); // Visual feedback
                  player.sendMessage("§c它很累，产奶量可能受影响。(应激值上升)");
             }
         }
     }
 
     @EventHandler
-    @SuppressWarnings("deprecation")
+    public void onSheepInteract(PlayerInteractEntityEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND) return;
+        if (!(event.getRightClicked() instanceof Sheep)) return;
+        
+        Player player = event.getPlayer();
+        long now = System.currentTimeMillis();
+        if (now - interactionCooldowns.getOrDefault(player.getUniqueId(), 0L) < 200) return;
+        interactionCooldowns.put(player.getUniqueId(), now);
+        
+        Sheep sheep = (Sheep) event.getRightClicked();
+        
+        // Prevent QTE conflict
+        if (plugin.getQTEManager().isQTEActive(player)) {
+            event.setCancelled(true);
+            return;
+        }
+        
+        ItemStack item = player.getInventory().getItemInMainHand();
+        
+        // Check for Custom Shears (Now IRON_HOE)
+        boolean isPastureShears = false;
+        if (item.getType() == Material.IRON_HOE && item.hasItemMeta() && item.getItemMeta().hasCustomModelData() && item.getItemMeta().getCustomModelData() == 30003) {
+            isPastureShears = true;
+        }
+
+        if (isPastureShears) {
+             // Check Exhaustion
+            if (plugin.getExhaustionManager().isExhausted(sheep)) {
+                double penalty = plugin.getConfig().getDouble("stress.interaction_penalty", 20.0);
+                plugin.getStressManager().addTemporaryStress(sheep, penalty);
+                plugin.getExhaustionManager().playExhaustionEffect(sheep); // Visual feedback
+                player.sendMessage("§c这就去剪毛吗？它看起来很累。(应激值上升)");
+            } 
+            
+            String specialtyItemKey = getSpecialtyDrop(sheep);
+            EnvironmentManager.LoadResult load = plugin.getEnvironmentManager().getLoad(sheep);
+            
+            if (specialtyItemKey != null && load.isValid && !plugin.getExhaustionManager().isExhausted(sheep)) {
+                // Potential Specialty Harvest
+                event.setCancelled(true);
+                
+                // Start QTE
+                plugin.getQTEManager().startQTE(player, new SheepShearingQTE(plugin, player, sheep,
+                    () -> {
+                        doSpecialtyHarvest(player, sheep, item, specialtyItemKey, Sound.ENTITY_SHEEP_SHEAR);
+                        shearSheep(sheep, true);
+                    },
+                    () -> {
+                        player.sendMessage("§c剪坏了！");
+                        plugin.getStressManager().addTemporaryStress(sheep, 10.0);
+                    }
+                ));
+            } else {
+                 // Fallback or handle normal shears logic if needed, but since it's an Iron Hoe, do nothing if not valid for QTE
+            }
+        }
+    }
+
+    @EventHandler
     public void onShear(PlayerShearEntityEvent event) {
         if (!(event.getEntity() instanceof Sheep)) return;
-        Sheep sheep = (Sheep) event.getEntity();
+        // This handles vanilla shears. 
+        // Since Custom Shears are now Iron Hoe, this event won't fire for them.
+        // We leave this for vanilla shears compatibility if desired, or remove if vanilla shears should be disabled?
+        // User didn't ask to disable vanilla shears, only to fix the custom one.
+        // But we added QTE protection here before, let's keep it.
+        
         Player player = event.getPlayer();
         
-        // Check Exhaustion
-        if (plugin.getExhaustionManager().isExhausted(sheep)) {
-            double penalty = plugin.getConfig().getDouble("stress.interaction_penalty", 20.0);
-            plugin.getStressManager().addTemporaryStress(sheep, penalty);
-            player.sendMessage("§c这就去剪毛吗？它看起来很累。(应激值上升)");
-        } 
-        
-        String specialtyItemKey = getSpecialtyDrop(sheep);
-        EnvironmentManager.LoadResult load = plugin.getEnvironmentManager().getLoad(sheep);
-        
-        if (specialtyItemKey != null && load.isValid && !plugin.getExhaustionManager().isExhausted(sheep)) {
-            // Potential Specialty Harvest
+        // Prevent QTE conflict
+        if (plugin.getQTEManager().isQTEActive(player)) {
             event.setCancelled(true);
-            
-            // QTE Logic (Placeholder)
-            player.sendMessage("§a[QTE Placeholder] 剪毛QTE成功！");
-            
-            // Calculate Amount
-            double multiplier = getSpecialtyGeneMultiplier(sheep);
-            int amount = (int) multiplier;
-            if (ThreadLocalRandom.current().nextDouble() < (multiplier - amount)) {
-                amount++;
-            }
-            if (amount < 1) amount = 1;
-            
-            // Drop Specialty
-            ItemStack result = getSpecialtyItemStack(specialtyItemKey);
-            if (result != null) {
-                result.setAmount(amount);
-                applyQualityLore(result, getQualityStars(sheep));
-                sheep.getWorld().dropItemNaturally(sheep.getLocation(), result);
-                player.sendMessage("§b获得特产: " + result.getItemMeta().getDisplayName() + " x" + amount);
-            }
-            
-            // Apply Exhaustion
-            plugin.getExhaustionManager().setExhausted(sheep, 15 * 60 * 1000L);
-            sheep.setSheared(true); 
-            player.playSound(sheep.getLocation(), Sound.ENTITY_SHEEP_SHEAR, 1.0f, 1.0f);
-            
-            // Damage Tool
-            ItemStack hand = player.getInventory().getItemInMainHand();
-            if (hand.getType().name().contains("SHEARS")) {
-                hand.damage(1, player);
-            }
+            return;
+        }
+    }
+
+    private void shearSheep(Sheep sheep, boolean sheared) {
+        // Use reflection to bypass compile-time deprecation warnings and "unnecessary suppression" conflicts
+        try {
+            java.lang.reflect.Method method = sheep.getClass().getMethod("setSheared", boolean.class);
+            method.invoke(sheep, sheared);
+        } catch (Exception e) {
+            // If the method is removed in future versions, we can log it or fallback
+            // plugin.getLogger().warning("Failed to set sheared state: " + e.getMessage());
         }
     }
 
@@ -173,22 +345,73 @@ public class ProductionListener implements Listener {
         if (!(event.getRightClicked() instanceof Chicken)) return;
         Chicken chicken = (Chicken) event.getRightClicked();
         Player player = event.getPlayer();
+        
+        // Prevent QTE conflict
+        if (plugin.getQTEManager().isQTEActive(player)) {
+            event.setCancelled(true);
+            return;
+        }
+        
         ItemStack item = player.getInventory().getItemInMainHand();
 
         if (item.getType() == Material.BRUSH) {
-            handleSpecialtyHarvest(event, chicken, item, "特产羽毛", Sound.ENTITY_CHICKEN_HURT); 
+             EnvironmentManager.LoadResult load = plugin.getEnvironmentManager().getLoad(chicken);
+             String specialty = getSpecialtyDrop(chicken);
+             
+             if (specialty != null && load.isValid && !plugin.getExhaustionManager().isExhausted(chicken)) {
+                 event.setCancelled(true);
+                 plugin.getQTEManager().startQTE(player, new ChickenBrushingQTE(plugin, player, chicken,
+                     () -> doSpecialtyHarvest(player, chicken, item, specialty, Sound.ENTITY_CHICKEN_HURT),
+                     () -> {
+                         player.sendMessage("§c鸡被吓到了！");
+                         plugin.getStressManager().addTemporaryStress(chicken, 15.0);
+                     }
+                 ));
+             } else {
+                 handleSpecialtyHarvest(event, chicken, item, "特产羽毛", Sound.ENTITY_CHICKEN_HURT); 
+             }
         }
     }
 
-    @EventHandler
+    @EventHandler(ignoreCancelled = true)
     public void onPigInteract(PlayerInteractEntityEvent event) {
+        if (event.getHand() != EquipmentSlot.HAND) return;
         if (!(event.getRightClicked() instanceof Pig)) return;
         Pig pig = (Pig) event.getRightClicked();
         Player player = event.getPlayer();
+        
+        // Prevent QTE conflict
+        if (plugin.getQTEManager().isQTEActive(player)) {
+            event.setCancelled(true);
+            return;
+        }
+        
         ItemStack item = player.getInventory().getItemInMainHand();
 
         if (item.getType() == Material.GOLDEN_SHOVEL) {
-            handleSpecialtyHarvest(event, pig, item, "特产松露", Sound.ITEM_SHOVEL_FLATTEN);
+             EnvironmentManager.LoadResult load = plugin.getEnvironmentManager().getLoad(pig);
+             String specialty = getSpecialtyDrop(pig);
+             if (specialty != null && load.isValid && !plugin.getExhaustionManager().isExhausted(pig)) {
+                 event.setCancelled(true);
+                 plugin.getQTEManager().startQTE(player, new PigTruffleQTE(plugin, player, pig,
+                     () -> {
+                         // onDig
+                         dropSpecialtyItem(player, pig, specialty, Sound.ITEM_SHOVEL_FLATTEN);
+                     },
+                     () -> {
+                         // onSuccess (Complete)
+                         plugin.getExhaustionManager().setExhausted(pig, 15 * 60 * 1000L);
+                         if (item != null) item.damage(1, player);
+                         player.sendMessage("§a[牧野之歌] 搜寻结束！");
+                     },
+                     () -> {
+                         // onFailure
+                         plugin.getStressManager().addTemporaryStress(pig, 5.0);
+                     }
+                 ));
+             } else {
+                handleSpecialtyHarvest(event, pig, item, "特产松露", Sound.ITEM_SHOVEL_FLATTEN);
+             }
         }
     }
     
@@ -205,6 +428,7 @@ public class ProductionListener implements Listener {
         if (plugin.getExhaustionManager().isExhausted(entity)) {
             event.setCancelled(true);
             player.sendMessage("§c动物太累了。(应激值上升)");
+            plugin.getExhaustionManager().playExhaustionEffect(entity); // Visual feedback
             plugin.getStressManager().addTemporaryStress(entity, 10.0);
             return;
         }
@@ -217,7 +441,23 @@ public class ProductionListener implements Listener {
         }
 
         event.setCancelled(true);
-        player.sendMessage("§a[QTE Placeholder] 成功获取" + name);
+        // If we reach here via direct interaction (not QTE), we perform the harvest
+        doSpecialtyHarvest(player, entity, tool, specialtyKey, sound);
+    }
+
+    private void doSpecialtyHarvest(Player player, LivingEntity entity, ItemStack tool, String specialtyKey, Sound sound) {
+        dropSpecialtyItem(player, entity, specialtyKey, sound);
+        
+        plugin.getExhaustionManager().setExhausted(entity, 15 * 60 * 1000L);
+        
+        if (tool != null) {
+            tool.damage(1, player);
+        }
+    }
+    
+    private void dropSpecialtyItem(Player player, LivingEntity entity, String specialtyKey, Sound sound) {
+        player.sendMessage("§a[牧野之歌] 成功获取特产！");
+        entity.getWorld().spawnParticle(org.bukkit.Particle.TOTEM_OF_UNDYING, entity.getLocation().add(0, 1, 0), 10, 0.5, 0.5, 0.5, 0.1); // Success particles
         
         double multiplier = getSpecialtyGeneMultiplier(entity);
         int amount = (int) multiplier;
@@ -235,34 +475,81 @@ public class ProductionListener implements Listener {
              player.sendMessage("§cError: Item not found (" + specialtyKey + ")");
         }
         
-        plugin.getExhaustionManager().setExhausted(entity, 15 * 60 * 1000L);
         player.playSound(entity.getLocation(), sound, 1.0f, 1.0f);
-        
-        tool.damage(1, player);
     }
     
     // --- Helpers ---
 
+    private static final List<String> BASIC_KEYS = List.of("RICH_MILK", "SOFT_WOOL", "FINE_FEATHER", "WHITE_TRUFFLE");
+
     private String getSpecialtyDrop(LivingEntity entity) {
-        Biome biome = entity.getLocation().getBlock().getBiome();
-        // Simplified Biome check
-        boolean isPlains = biome.name().contains("PLAINS") || biome.name().contains("MEADOW");
-        boolean isForest = biome.name().contains("FOREST");
-        boolean isJungle = biome.name().contains("JUNGLE");
-        boolean isCold = biome.name().contains("SNOW") || biome.name().contains("ICE");
+        String entityType = entity.getType().name();
         
-        if (entity instanceof Sheep) {
-            if (isPlains) return "HIGHLAND_WOOL";
-            if (isCold) return "FROST_FLEECE";
-        } else if (entity instanceof Cow) {
-            if (isPlains) return "RICH_MILK";
-            if (isForest) return "HERBAL_MILK";
-        } else if (entity instanceof Pig) {
-            if (isForest) return "TRUFFLE";
-        } else if (entity instanceof Chicken) {
-            if (isJungle || isForest) return "PHEASANT_FEATHER";
+        try {
+            // Check if BiomeGifts is available
+            if (org.bukkit.Bukkit.getPluginManager().getPlugin("BiomeGifts") == null) {
+                throw new NoClassDefFoundError("BiomeGifts plugin not found");
+            }
+
+            List<ResourceConfig> configs = BiomeGifts.getInstance().getConfigManager().getLivestockConfigs(entityType);
+            
+            if (configs == null || configs.isEmpty()) return getDefaultSpecialty(entityType);
+            
+            String biomeName = entity.getLocation().getBlock().getBiome().name();
+            List<String> matches = new ArrayList<>();
+            
+            for (ResourceConfig rc : configs) {
+                for (Pattern pattern : rc.richBiomes) {
+                    if (pattern.matcher(biomeName).find()) {
+                        matches.add(rc.dropItem);
+                        break; // Matched this config, move to next config
+                    }
+                }
+            }
+            
+            if (matches.isEmpty()) {
+                return getDefaultSpecialty(entityType);
+            }
+            
+            // Identify Basic vs Special
+            String special = null;
+            String basic = null;
+            
+            for (String key : matches) {
+                if (BASIC_KEYS.contains(key)) {
+                    basic = key;
+                } else {
+                    special = key; // Assume any non-basic is special
+                }
+            }
+            
+            if (special != null) {
+                if (basic != null) {
+                    // Both available (In Special Biome)
+                    if (ThreadLocalRandom.current().nextDouble() < 0.4) {
+                        return special;
+                    } else {
+                        return basic;
+                    }
+                } else {
+                    return special;
+                }
+            }
+            
+            return basic; // Only Basic or null
+
+        } catch (Throwable t) {
+            // Fallback if BiomeGifts is missing or errors out
+            return getDefaultSpecialty(entityType);
         }
-        return null; // No specialty here
+    }
+
+    private String getDefaultSpecialty(String entityType) {
+        if (entityType.equals("COW")) return "RICH_MILK";
+        if (entityType.equals("SHEEP")) return "SOFT_WOOL";
+        if (entityType.equals("CHICKEN")) return "FINE_FEATHER";
+        if (entityType.equals("PIG")) return "WHITE_TRUFFLE";
+        return null;
     }
 
     private double getSpecialtyGeneMultiplier(LivingEntity entity) {
@@ -280,23 +567,9 @@ public class ProductionListener implements Listener {
         Animals animal = (Animals) entity;
         GeneData genes = plugin.getGeneticsManager().getGenesFromEntity(entity);
         if (genes == null) return 1;
-        
-        double q = genes.getGenePair(Trait.QUALITY).getPhenotypeValue();
-        
-        // Avg of others
-        double v = genes.getGenePair(Trait.VITALITY).getPhenotypeValue();
-        double r = genes.getGenePair(Trait.RESISTANCE).getPhenotypeValue();
-        double f = genes.getGenePair(Trait.FERTILITY).getPhenotypeValue();
-        double avgOthers = (v + r + f) / 3.0;
-        
-        double score = (q * 0.5) + (avgOthers * 0.5);
-        
-        int stars = 1;
-        if (score >= 8.0) stars = 5;
-        else if (score >= 2.0) stars = 4;
-        else if (score >= -2.0) stars = 3;
-        else if (score >= -8.0) stars = 2;
-        else stars = 1;
+
+        // Use the new centralized method for Drop Quality Rating
+        int stars = plugin.getGeneticsManager().calculateProductionRating(genes);
         
         // Stress Penalty
         double stress = plugin.getStressManager().getTotalStress(animal);
@@ -311,22 +584,42 @@ public class ProductionListener implements Listener {
     }
 
     private ItemStack getSpecialtyItemStack(String key) {
+        try {
+            if (org.bukkit.Bukkit.getPluginManager().getPlugin("BiomeGifts") != null) {
+                return BiomeGifts.getInstance().getItemManager().getItem(key);
+            }
+        } catch (Throwable ignored) {}
+
+        // Fallback Item Creation
         Material mat = Material.PAPER;
         String name = "未知特产";
+        int model = 0;
         
         switch (key) {
-            case "HIGHLAND_WOOL": mat = Material.WHITE_WOOL; name = "§b高地羊毛"; break;
-            case "FROST_FLEECE": mat = Material.LIGHT_BLUE_WOOL; name = "§b霜冻羊毛"; break;
-            case "RICH_MILK": mat = Material.MILK_BUCKET; name = "§b醇香牛乳"; break;
-            case "HERBAL_MILK": mat = Material.MILK_BUCKET; name = "§b百草乳"; break;
-            case "TRUFFLE": mat = Material.BROWN_MUSHROOM; name = "§b黑松露"; break;
-            case "PHEASANT_FEATHER": mat = Material.FEATHER; name = "§b锦鸡翎"; break;
+            case "RICH_MILK":
+                mat = Material.MILK_BUCKET; // Or generic item
+                name = "§f醇香牛奶";
+                break;
+            case "SOFT_WOOL":
+                mat = Material.WHITE_WOOL;
+                name = "§f柔软羊毛";
+                break;
+            case "FINE_FEATHER":
+                mat = Material.FEATHER;
+                name = "§f优质羽毛";
+                break;
+            case "WHITE_TRUFFLE":
+                mat = Material.BROWN_MUSHROOM;
+                name = "§f白松露";
+                model = 1001;
+                break;
         }
         
         ItemStack item = new ItemStack(mat);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.displayName(Component.text(name));
+            if (model > 0) meta.setCustomModelData(model);
             item.setItemMeta(meta);
         }
         return item;
@@ -339,7 +632,8 @@ public class ProductionListener implements Listener {
         List<Component> lore = meta.lore();
         if (lore == null) lore = new ArrayList<>();
         
-        StringBuilder starStr = new StringBuilder("§6");
+        String colorCode = getQualityColorCode(stars);
+        StringBuilder starStr = new StringBuilder(colorCode);
         for (int i = 0; i < 5; i++) {
             if (i < stars) starStr.append("★");
             else starStr.append("☆");
@@ -347,6 +641,45 @@ public class ProductionListener implements Listener {
         
         lore.add(0, Component.text(starStr.toString()));
         meta.lore(lore);
+        
+        // Name Color
+        net.kyori.adventure.text.format.TextColor textColor;
+        switch (stars) {
+            case 1: textColor = net.kyori.adventure.text.format.NamedTextColor.GREEN; break;
+            case 2: textColor = net.kyori.adventure.text.format.NamedTextColor.AQUA; break;
+            case 3: textColor = net.kyori.adventure.text.format.NamedTextColor.LIGHT_PURPLE; break;
+            case 4: textColor = net.kyori.adventure.text.format.NamedTextColor.YELLOW; break;
+            case 5: textColor = net.kyori.adventure.text.format.NamedTextColor.GOLD; break;
+            default: textColor = net.kyori.adventure.text.format.NamedTextColor.WHITE;
+        }
+        
+        Component name = meta.displayName();
+        if (name == null) name = Component.translatable(item.getType().translationKey());
+        
+        name = name.color(textColor);
+        if (stars == 5) {
+             name = name.decorate(net.kyori.adventure.text.format.TextDecoration.BOLD);
+        }
+        meta.displayName(name);
+        
+        // Write star rating to PDC for CuisineFarming compatibility
+        // Key: cuisinefarming:star_rating
+        NamespacedKey starKey = NamespacedKey.fromString("cuisinefarming:star_rating");
+        if (starKey != null) {
+            meta.getPersistentDataContainer().set(starKey, PersistentDataType.INTEGER, stars);
+        }
+        
         item.setItemMeta(meta);
+    }
+
+    private String getQualityColorCode(int stars) {
+        switch (stars) {
+            case 1: return "§a"; // Green
+            case 2: return "§b"; // Aqua
+            case 3: return "§d"; // Light Purple
+            case 4: return "§e"; // Yellow
+            case 5: return "§6"; // Gold
+            default: return "§f";
+        }
     }
 }

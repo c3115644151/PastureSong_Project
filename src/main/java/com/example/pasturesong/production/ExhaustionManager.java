@@ -54,8 +54,13 @@ public class ExhaustionManager {
      */
     public void playExhaustionEffect(LivingEntity entity) {
         if (isExhausted(entity)) {
-            // Smoke particles
-            entity.getWorld().spawnParticle(Particle.SMOKE, entity.getLocation().add(0, 1, 0), 5, 0.2, 0.2, 0.2, 0.05);
+            // Smoke particles (Gray smoke as requested)
+            entity.getWorld().spawnParticle(Particle.CAMPFIRE_COSY_SMOKE, entity.getLocation().add(0, entity.getHeight() + 0.5, 0), 3, 0.1, 0.1, 0.1, 0.01);
+            
+            // Subtle breathing/tired sound (Low chance to avoid spam in loop)
+            if (java.util.concurrent.ThreadLocalRandom.current().nextDouble() < 0.2) {
+                 entity.getWorld().playSound(entity.getLocation(), org.bukkit.Sound.ENTITY_LLAMA_SPIT, 0.5f, 0.5f); // Sigh-like sound
+            }
         }
     }
 }

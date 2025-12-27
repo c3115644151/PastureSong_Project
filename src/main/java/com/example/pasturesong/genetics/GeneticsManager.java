@@ -19,10 +19,12 @@ import java.util.concurrent.ThreadLocalRandom;
 public class GeneticsManager {
 
     private final NamespacedKey IDENTIFIED_KEY;
+    private final NamespacedKey SOURCE_KEY;
     private final Map<Trait, NamespacedKey> TRAIT_KEYS;
     
     public GeneticsManager(PastureSong plugin) {
         this.IDENTIFIED_KEY = new NamespacedKey(plugin, "gene_identified");
+        this.SOURCE_KEY = new NamespacedKey(plugin, "gene_source");
         this.TRAIT_KEYS = new java.util.EnumMap<>(Trait.class);
         
         for (Trait trait : Trait.values()) {
@@ -74,6 +76,110 @@ public class GeneticsManager {
         return child;
     }
 
+    // ==========================================
+    // 基因评级与属性应用
+    // ==========================================
+    
+    /**
+     * Calculate General Rating (For Health Scaling & DNA Lore)
+     * Average of all traits.
+     */
+    public int calculateGeneralRating(GeneData data) {
+        if (data == null) return 1;
+        
+        double total = 0;
+        for (Trait trait : Trait.values()) {
+            total += data.getGenePair(trait).getPhenotypeValue();
+        }
+        double avg = total / Trait.values().length;
+        
+        return scoreToStars(avg);
+    }
+
+    /**
+     * Calculate Production Rating (For Drops)
+     * (Quality * 0.5) + (AvgOthers * 0.5)
+     */
+    public int calculateProductionRating(GeneData data) {
+        if (data == null) return 1;
+        
+        double q = data.getGenePair(Trait.QUALITY).getPhenotypeValue();
+        double others = 0;
+        int otherCount = 0;
+        for (Trait t : Trait.values()) {
+            if (t != Trait.QUALITY) {
+                others += data.getGenePair(t).getPhenotypeValue();
+                otherCount++;
+            }
+        }
+        double avgOthers = (otherCount > 0) ? (others / otherCount) : 0;
+        
+        double score = (q * 0.5) + (avgOthers * 0.5);
+        return scoreToStars(score);
+    }
+
+    private int scoreToStars(double score) {
+        if (score >= 8.0) return 5;
+        if (score >= 2.0) return 4;
+        if (score >= -2.0) return 3;
+        if (score >= -8.0) return 2;
+        return 1;
+    }
+    
+    /**
+     * Deprecated: Use specific rating methods instead
+     */
+    @Deprecated
+    public int calculateStarRating(GeneData data) {
+        return calculateProductionRating(data);
+    }
+    
+    public String getStarDisplay(int stars) {
+        StringBuilder sb = new StringBuilder("§6");
+        for (int i = 0; i < 5; i++) {
+            if (i < stars) sb.append("★");
+            else sb.append("☆");
+        }
+        return sb.toString();
+    }
+    
+    /**
+     * 应用基因属性（血量等）
+     */
+    public void applyGeneAttributes(LivingEntity entity, GeneData data) {
+        if (entity == null || data == null) return;
+        
+        int stars = calculateGeneralRating(data);
+        
+        // Base Health Scaling
+        // 1 Star: 1.5x (+50%)
+        // 2 Stars: 2.0x (+100%)
+        // 3 Stars: 2.5x (+150%)
+        // 4 Stars: 3.0x (+200%)
+        // 5 Stars: 3.5x (+250%)
+        double multiplier = 1.0 + (stars * 0.5);
+        
+        org.bukkit.attribute.AttributeInstance healthAttr = entity.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH);
+        if (healthAttr != null) {
+            double base = healthAttr.getDefaultValue(); 
+            // "Based on realistic logic give animals base health increase".
+            // Reduced by ~30% as per request.
+            // Cow -> 21 (was 30).
+            // Pig -> 17 (was 24).
+            // Sheep -> 14 (was 20).
+            // Chicken -> 8 (was 12).
+            
+            if (entity instanceof org.bukkit.entity.Cow) base = 21;
+            else if (entity instanceof org.bukkit.entity.Pig) base = 17;
+            else if (entity instanceof org.bukkit.entity.Sheep) base = 14;
+            else if (entity instanceof org.bukkit.entity.Chicken) base = 8;
+            
+            double newMax = base * multiplier;
+            healthAttr.setBaseValue(newMax);
+            entity.setHealth(newMax); // Heal to full
+        }
+    }
+    
     /**
      * Trigger a forced mutation check on an existing animal.
      * Used for stress/environmental degradation.
@@ -221,6 +327,34 @@ public class GeneticsManager {
     // ==========================================
 
     /**
+     * Check if item has gene data
+     */
+    public boolean hasGeneData(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) return false;
+        // We check IDENTIFIED_KEY or SOURCE_KEY
+        return item.getItemMeta().getPersistentDataContainer().has(IDENTIFIED_KEY, PersistentDataType.BYTE) ||
+               item.getItemMeta().getPersistentDataContainer().has(SOURCE_KEY, PersistentDataType.STRING);
+    }
+
+    /**
+     * Clear all gene data from item
+     */
+    public void clearGeneData(ItemStack item) {
+        if (item == null || !item.hasItemMeta()) return;
+        ItemMeta meta = item.getItemMeta();
+        PersistentDataContainer pdc = meta.getPersistentDataContainer();
+        
+        pdc.remove(IDENTIFIED_KEY);
+        pdc.remove(SOURCE_KEY);
+        for (NamespacedKey key : TRAIT_KEYS.values()) {
+            pdc.remove(key);
+        }
+        
+        meta.lore(null); // Clear lore
+        item.setItemMeta(meta);
+    }
+
+    /**
      * 从物品中读取基因数据
      */
     public GeneData getGenesFromItem(ItemStack item) {
@@ -307,6 +441,16 @@ public class GeneticsManager {
     }
 
     /**
+     * Set the source entity type for the DNA sample.
+     */
+    public void setGeneSource(ItemStack item, LivingEntity entity) {
+        if (item == null || entity == null) return;
+        ItemMeta meta = item.getItemMeta();
+        meta.getPersistentDataContainer().set(SOURCE_KEY, PersistentDataType.STRING, entity.getType().name());
+        item.setItemMeta(meta);
+    }
+
+    /**
      * 更新物品 Lore 以显示基因信息
      */
     public void updateGeneLore(ItemStack item, GeneData genes) {
@@ -316,8 +460,23 @@ public class GeneticsManager {
         
         java.util.List<net.kyori.adventure.text.Component> lore = new java.util.ArrayList<>();
         
+        // Add Source Info
+        if (meta.getPersistentDataContainer().has(SOURCE_KEY, PersistentDataType.STRING)) {
+            String source = meta.getPersistentDataContainer().get(SOURCE_KEY, PersistentDataType.STRING);
+            // Simple translation or capitalization
+            source = source.substring(0, 1).toUpperCase() + source.substring(1).toLowerCase();
+            lore.add(net.kyori.adventure.text.Component.text("§7样本来源: §f" + source));
+            lore.add(net.kyori.adventure.text.Component.text(""));
+        }
+
         if (genes.isIdentified()) {
             lore.add(net.kyori.adventure.text.Component.text("§7已分析的 DNA 样本"));
+            
+            // Star Rating
+            int stars = calculateGeneralRating(genes);
+            String starStr = getStarDisplay(stars);
+            lore.add(net.kyori.adventure.text.Component.text("§7基因评级: " + starStr));
+            
             lore.add(net.kyori.adventure.text.Component.text("§8----------------"));
             
             for (Trait trait : Trait.values()) {

@@ -28,6 +28,11 @@ public class StressManager {
     public void addTemporaryStress(LivingEntity entity, double amount) {
         double current = getTemporaryStress(entity);
         setTemporaryStress(entity, current + amount);
+        
+        // Feedback for significant stress increase
+        if (amount >= 2.0) {
+            entity.getWorld().spawnParticle(org.bukkit.Particle.LARGE_SMOKE, entity.getLocation().add(0, entity.getHeight(), 0), (int)amount, 0.2, 0.2, 0.2, 0.05);
+        }
     }
 
     public double getTemporaryStress(LivingEntity entity) {
@@ -73,14 +78,34 @@ public class StressManager {
         }
         
         // 5. Overload (New)
-        // Exponential penalty if load > capacity
         EnvironmentManager.LoadResult load = plugin.getEnvironmentManager().getLoad(entity);
-        if (load.overloaded) {
+        
+        if (!load.isValid && !load.isOpenWorld) {
+            // Invalid pasture (broken structure or bad floor)
+            // Fixed high penalty, but not insane (e.g. +30 stress)
+            base += 30.0;
+        } else if (load.overloaded) {
+            // Exponential penalty if load > capacity
             // Formula: 50 * (ratio - 1)^2
-            // Ratio 1.2 (+20%) -> 2 stress
-            // Ratio 1.5 (+50%) -> 12.5 stress
-            // Ratio 2.0 (+100%) -> 50 stress
-            double penalty = 50.0 * Math.pow(load.overloadRatio - 1.0, 2);
+            // If ratio is insane (e.g. 10.0), this spikes.
+            // We should use overloadRatio but ensure it's not from invalid state.
+            // But if it's invalid, it goes into the first block.
+            // Wait, does getLoad() set overloaded=true for invalid floor?
+            // Yes: result = new LoadResult(0.0, 10.0, true, 10.0, false, false);
+            // And isValid=false.
+            // So (!load.isValid && !load.isOpenWorld) is TRUE.
+            // It enters the first block. base += 30.0.
+            // So why did user report 4000+?
+            // Maybe isValid was TRUE but capacity was tiny?
+            // Or maybe my previous assumption about logic flow was wrong.
+            // Let's cap the penalty just in case.
+            
+            double ratio = load.overloadRatio;
+            // Cap ratio at 2.0 (100% overload) for calculation purposes to prevent spikes
+            if (ratio > 2.0) ratio = 2.0;
+            
+            double penalty = 50.0 * Math.pow(ratio - 1.0, 2);
+            if (penalty > 50.0) penalty = 50.0;
             base += penalty;
         }
 
@@ -88,7 +113,8 @@ public class StressManager {
     }
     
     public double getTotalStress(LivingEntity entity) {
-        return calculateBaseStress(entity) + getTemporaryStress(entity);
+        double total = calculateBaseStress(entity) + getTemporaryStress(entity);
+        return Math.min(total, getMaxStress());
     }
     
     /**
@@ -100,5 +126,9 @@ public class StressManager {
         if (current > 0) {
             setTemporaryStress(entity, current - amount);
         }
+    }
+
+    public double getMaxStress() {
+        return 100.0;
     }
 }

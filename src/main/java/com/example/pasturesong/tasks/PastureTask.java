@@ -31,9 +31,8 @@ public class PastureTask extends BukkitRunnable {
 
     @Override
     public void run() {
-        // Clear Environment Cache at start of cycle
-        plugin.getEnvironmentManager().clearCache();
-
+        // Cache is now managed by events (EnvironmentListener), no need to clear periodically.
+        
         for (World world : Bukkit.getWorlds()) {
             for (Entity entity : world.getEntitiesByClasses(Animals.class)) {
                 if (!(entity instanceof Animals)) continue;
@@ -66,9 +65,9 @@ public class PastureTask extends BukkitRunnable {
         boolean overloaded = plugin.getEnvironmentManager().getLoad(animal).overloaded;
         
         if (stress > 70.0 || overloaded) {
-            // 5% chance per 5s to trigger mutation check
-            if (java.util.concurrent.ThreadLocalRandom.current().nextDouble() < 0.05) {
-                // If check triggers, attempt mutation with 50% success rate (so 2.5% total per 5s if condition met)
+            // 1% chance per 5s to trigger mutation check
+            if (java.util.concurrent.ThreadLocalRandom.current().nextDouble() < 0.01) {
+                // If check triggers, attempt mutation with 50% success rate (so 0.5% total per 5s if condition met)
                 // Actually let's use the method's chance parameter.
                 plugin.getGeneticsManager().attemptExistingMutation(animal, 0.5, true); 
                 // "true" means malignant (only degrade)
@@ -76,9 +75,9 @@ public class PastureTask extends BukkitRunnable {
         }
                 
                 // 3. Defecation Logic
-                // Chance: 5% every 5 seconds? That's quite frequent.
-                // 5% = 1/20. So once every 100 seconds on average.
-                if (ThreadLocalRandom.current().nextDouble() < 0.05) {
+                // Chance: 0.1% every 5 seconds (Reduced from 0.5%)
+                // 0.1% = 1/1000. So once every 5000 seconds on average (~83 mins).
+                if (ThreadLocalRandom.current().nextDouble() < 0.001) {
                     plugin.getManureManager().attemptDefecation(animal);
                 }
                 
@@ -113,6 +112,11 @@ public class PastureTask extends BukkitRunnable {
                         // Thunder adds more stress (Reduced to 40% of original: 2.0 / 4.0)
                         double stressAdd = world.isThundering() ? 4.0 : 2.0;
                         plugin.getStressManager().addTemporaryStress(animal, stressAdd);
+                        
+                        // Feedback: Shivering? Water splash?
+                        if (ThreadLocalRandom.current().nextDouble() < 0.3) {
+                             world.spawnParticle(Particle.SPLASH, animal.getLocation().add(0, animal.getHeight(), 0), 5, 0.3, 0.5, 0.3);
+                        }
                     }
                 }
             }

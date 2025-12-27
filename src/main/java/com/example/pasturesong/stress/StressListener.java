@@ -22,7 +22,7 @@ public class StressListener implements Listener {
         
         double damage = event.getFinalDamage();
         // 1 damage = 10 stress
-        plugin.getStressManager().addTemporaryStress(animal, damage * 10.0);
+        plugin.getStressManager().addTemporaryStress(animal, damage * 5.0);
     }
     
     @EventHandler

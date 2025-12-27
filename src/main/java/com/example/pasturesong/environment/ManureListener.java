@@ -2,7 +2,6 @@ package com.example.pasturesong.environment;
 
 import com.example.pasturesong.PastureSong;
 import org.bukkit.Material;
-import org.bukkit.Sound;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.Action;
@@ -27,11 +26,13 @@ public class ManureListener implements Listener {
         // Check for Shovel
         if (item.getType().name().endsWith("_SHOVEL")) {
             if (event.getClickedBlock().getType() == Material.PODZOL) {
+                // Prevent vanilla path creation
+                event.setCancelled(true);
+                
                 boolean success = plugin.getManureManager().cleanManure(event.getClickedBlock());
                 if (success) {
-                    event.getPlayer().playSound(event.getClickedBlock().getLocation(), Sound.ITEM_HOE_TILL, 1.0f, 1.0f);
-                    // Damage shovel?
-                    // item.damage(1, event.getPlayer());
+                    // Manually damage the item since event is cancelled
+                    item.damage(1, event.getPlayer());
                 }
             }
         }

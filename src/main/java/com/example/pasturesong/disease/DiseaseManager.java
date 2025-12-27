@@ -39,12 +39,12 @@ public class DiseaseManager {
     public void setSick(Animals animal, boolean sick) {
         if (sick) {
             animal.getPersistentDataContainer().set(sickKey, PersistentDataType.BYTE, (byte) 1);
-            // Initial effect
+            // Initial effect: Infection sound and Sneeze particles
             animal.getWorld().spawnParticle(Particle.SNEEZE, animal.getLocation().add(0, animal.getHeight(), 0), 10, 0.2, 0.2, 0.2, 0.1);
-            animal.getWorld().playSound(animal.getLocation(), Sound.ENTITY_ZOMBIE_VILLAGER_CURE, 0.5f, 2.0f);
+            animal.getWorld().playSound(animal.getLocation(), Sound.ENTITY_ZOMBIE_INFECT, 0.5f, 1.5f);
         } else {
             animal.getPersistentDataContainer().remove(sickKey);
-            // Cure effect
+            // Cure effect: Levelup sound and Heart particles
             animal.getWorld().spawnParticle(Particle.HEART, animal.getLocation().add(0, animal.getHeight(), 0), 5, 0.3, 0.3, 0.3, 0.1);
             animal.getWorld().playSound(animal.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 0.5f, 1.5f);
         }
@@ -57,7 +57,8 @@ public class DiseaseManager {
         }
 
         // Add Stress (Disease causes discomfort)
-        plugin.getStressManager().addTemporaryStress(animal, 2.0);
+        // Removed as per request (Flu only causes buff/damage, not stress)
+        // plugin.getStressManager().addTemporaryStress(animal, 2.0);
         
         // Influenza Buff - Periodic Damage
         // Slow damage: e.g. 0.5 damage every 10 seconds. This tick runs every 5s.
@@ -102,9 +103,9 @@ public class DiseaseManager {
                  for (Entity e : nearby) {
                     if (e instanceof org.bukkit.entity.Player) {
                         org.bukkit.entity.Player p = (org.bukkit.entity.Player) e;
-                        // Player gets "Influenza" buff - Weakness and Slowness?
-                        // Or just message?
-                        p.sendMessage("§c你感觉有些头晕... (感染流感)");
+                        // Player gets "Influenza" buff - Weakness and Slowness
+                        p.sendActionBar(net.kyori.adventure.text.Component.text("§c☣ 警告：你接触了感染源并感染了流感！ ☣"));
+                        p.playSound(p.getLocation(), Sound.ENTITY_ZOMBIE_INFECT, 0.5f, 0.5f);
                         p.addPotionEffect(new org.bukkit.potion.PotionEffect(org.bukkit.potion.PotionEffectType.WEAKNESS, 600, 0));
                         p.addPotionEffect(new org.bukkit.potion.PotionEffect(org.bukkit.potion.PotionEffectType.SLOWNESS, 600, 0));
                         transmitted = true;
@@ -145,7 +146,7 @@ public class DiseaseManager {
         // 2. High Stress
         double stress = plugin.getStressManager().getTotalStress(animal);
         if (stress > 70.0) {
-            infectionRisk += 0.05; // +5% risk if very stressed
+            infectionRisk += 0.02; // +2% risk if very stressed (Reduced from 5%)
         }
 
         // 3. Genetics (Resistance)
@@ -162,10 +163,9 @@ public class DiseaseManager {
         if (infectionRisk > 1.0) infectionRisk = 1.0;
 
         // Roll dice (This runs every 5s)
-        // If infectionRisk is 0.1 (10%), that's huge.
-        // Let's multiply by a factor, say 0.1. So 10% risk param = 1% actual chance.
+        // Multiplier lowered to 0.005 as requested (0.5% max chance base).
         
-        if (infectionRisk > 0 && ThreadLocalRandom.current().nextDouble() < (infectionRisk * 0.1)) {
+        if (infectionRisk > 0 && ThreadLocalRandom.current().nextDouble() < (infectionRisk * 0.005)) {
             setSick(animal, true);
         }
     }
