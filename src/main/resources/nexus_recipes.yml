@@ -1,0 +1,29 @@
+# ==============================================================================
+# PastureSong - Nexus Recipe Configuration
+# ==============================================================================
+
+butcher_knife_recipe:
+  type: shaped
+  result:
+    item: pasture-song:butcher_knife
+    amount: 1
+  shape:
+    - " I "
+    - " I "
+    - " S "
+  ingredients:
+    I:
+      item: minecraft:iron_ingot
+    S:
+      item: minecraft:stick
+
+quality_feed_recipe:
+  type: shapeless
+  result:
+    item: pasture-song:quality_feed
+    amount: 4
+  ingredients:
+    - item: minecraft:wheat
+    - item: minecraft:wheat
+    - item: minecraft:carrot
+    - item: minecraft:wheat_seeds

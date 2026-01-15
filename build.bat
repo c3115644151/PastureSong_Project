@@ -20,14 +20,14 @@ set "MAVEN_HOME_CUSTOM=C:\apache-maven-3.9.11-bin\apache-maven-3.9.11"
 
 if exist "%MAVEN_HOME_CUSTOM%\bin\mvn.cmd" (
     echo [INFO] Found Maven at custom path: %MAVEN_HOME_CUSTOM%
-    "%MAVEN_HOME_CUSTOM%\bin\mvn.cmd" clean package
+    call "%MAVEN_HOME_CUSTOM%\bin\mvn.cmd" clean install
     goto :end
 )
 
 call mvn -v >nul 2>&1
 if %errorlevel% equ 0 (
     echo [INFO] Found Maven in PATH.
-    call mvn clean package
+    call mvn clean install
     goto :end
 )
 
@@ -44,7 +44,7 @@ set MAVEN_DIR=%MAVEN_DIR:"=%
 
 if exist "%MAVEN_DIR%\bin\mvn.cmd" (
     echo [INFO] Found Maven at: %MAVEN_DIR%
-    "%MAVEN_DIR%\bin\mvn.cmd" clean package
+    call "%MAVEN_DIR%\bin\mvn.cmd" clean install
 ) else (
     echo.
     echo [ERROR] Could not find '\bin\mvn.cmd' in that folder.
@@ -55,6 +55,10 @@ if exist "%MAVEN_DIR%\bin\mvn.cmd" (
 echo.
 echo ==========================================
 echo Build process finished.
-echo Check the 'target' folder for the .jar file.
+if exist "target\PastureSong-1.0-SNAPSHOT.jar" (
+    echo [SUCCESS] Jar found at target\PastureSong-1.0-SNAPSHOT.jar
+    echo Copying to plugins folder...
+    copy /Y "target\PastureSong-1.0-SNAPSHOT.jar" "..\plugins\PastureSong-1.0-SNAPSHOT.jar"
+)
 echo ==========================================
 pause

@@ -1,0 +1,44 @@
+items:
+  GENETIC_LENS:
+    material: SPYGLASS
+    name: "§6牧原透镜"
+    custom-model-data: 30001
+    star: false
+    lore:
+      - "§7透过镜片观察生命的本质。"
+      - "§e右键动物查看性状特征。"
+  DNA_SAMPLER:
+    material: FLINT
+    name: "§6DNA 采样器"
+    custom-model-data: 30002
+    star: false
+    lore:
+      - "§7锋利的采样工具。"
+      - "§e右键动物提取 DNA 样本。"
+      - "§c注意：会造成动物受伤和应激。"
+  PASTURE_SHEARS:
+    material: IRON_HOE
+    name: "§6精工剪"
+    custom-model-data: 30003
+    star: false
+    lore:
+      - "§7专为获取高品质羊毛设计。"
+      - "§e右键绵羊进行精准剪毛。"
+      - "§a能够完整采集特产羊毛。"
+  ANIMAL_MANURE:
+    material: BROWN_DYE
+    name: "§6动物粪便"
+    custom-model-data: 30004
+    star: false
+    lore:
+      - "§7收集到的动物排泄物。"
+      - "§e可用于制作有机肥料。"
+  BUTCHER_KNIFE:
+    material: IRON_SWORD
+    name: "§6屠宰刀"
+    custom-model-data: 30005
+    star: false
+    lore:
+      - "§7专为宰杀牲畜设计的刀具。"
+      - "§e自带屠宰附魔效果。"
+      - "§c能够最大化肉类产出。"

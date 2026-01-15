@@ -4,7 +4,7 @@ main: com.example.pasturesong.PastureSong
 api-version: 1.21
 description: A complex animal husbandry plugin with genetics and ecosystem mechanics.
 author: cy311
-depend: [BiomeGifts]
+depend: [BiomeGifts, NexusCore]
 commands:
   pasturesong:
     description: Main command for PastureSong
