@@ -15,7 +15,7 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.configuration.ConfigurationSection;
 import java.io.File;
 import org.bukkit.persistence.PersistentDataType;
-import com.nexuscore.api.NexusKeys;
+import com.nexuscore.util.NexusKeys;
 
 public class PastureItemManager {
     private final PastureSong plugin;

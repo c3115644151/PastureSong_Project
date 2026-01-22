@@ -1,7 +1,7 @@
 package com.example.pasturesong.integration;
 
 import com.example.pasturesong.PastureSong;
-import com.nexuscore.api.NexusItemProvider;
+import com.nexuscore.items.NexusItemProvider;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemStack;
 
